@@ -184,7 +184,7 @@
 
   {#if showPanel}
     <section
-      class="absolute bottom-3 left-3 right-3 z-20 grid max-h-[calc(100dvh-9.25rem)] min-w-0 gap-3 overflow-y-auto pr-1 sm:bottom-4 sm:left-4 sm:right-4 lg:bottom-6 lg:left-6 lg:right-6 lg:max-h-none lg:grid-cols-[minmax(21rem,25rem)_1fr_minmax(19rem,23rem)] lg:overflow-visible lg:pr-0"
+      class="control-panel absolute bottom-3 left-3 right-3 z-20 grid max-h-[58dvh] min-w-0 gap-3 overflow-y-auto pr-1 sm:bottom-4 sm:left-4 sm:right-4 md:max-h-[62dvh] lg:bottom-6 lg:left-6 lg:right-6 lg:max-h-none lg:grid-cols-[minmax(21rem,25rem)_1fr_minmax(19rem,23rem)] lg:overflow-visible lg:pr-0"
     >
       <div class="glass-panel min-w-0 rounded-lg p-4">
         <div class="mb-4 flex items-center justify-between gap-3">
@@ -193,7 +193,7 @@
             <h2 class="mt-1 text-lg font-semibold text-white">{location.label}</h2>
           </div>
           <button
-            class="rounded-md border border-white/12 bg-white/7 p-2 text-emerald-100 transition hover:bg-white/12 active:translate-y-px"
+            class="min-h-11 min-w-11 rounded-md border border-white/12 bg-white/7 p-2.5 text-emerald-100 transition hover:bg-white/12 active:translate-y-px"
             type="button"
             aria-label="Use browser location"
             on:click={requestBrowserLocation}
@@ -213,26 +213,26 @@
           </div>
         </div>
 
-        <div class="mt-4 grid grid-cols-[1fr_5.75rem_5.75rem] gap-2">
-          <label class="grid gap-1 text-xs text-slate-300">
+        <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_5.75rem_5.75rem]">
+          <label class="col-span-2 grid min-w-0 gap-1 text-xs text-slate-300 sm:col-span-1">
             Label
             <input
-              class="rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-200/60"
+              class="min-h-10 w-full min-w-0 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-200/60"
               bind:value={manualLabel}
             />
           </label>
-          <label class="grid gap-1 text-xs text-slate-300">
+          <label class="grid min-w-0 gap-1 text-xs text-slate-300">
             Lat
             <input
-              class="rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-200/60"
+              class="min-h-10 w-full min-w-0 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-200/60"
               bind:value={manualLatitude}
               inputmode="decimal"
             />
           </label>
-          <label class="grid gap-1 text-xs text-slate-300">
+          <label class="grid min-w-0 gap-1 text-xs text-slate-300">
             Lon
             <input
-              class="rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-200/60"
+              class="min-h-10 w-full min-w-0 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-200/60"
               bind:value={manualLongitude}
               inputmode="decimal"
             />
@@ -263,7 +263,7 @@
         <div class="mt-4 flex flex-wrap gap-2">
           {#each PRESET_LOCATIONS as preset (preset.label)}
             <button
-              class="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 transition hover:border-emerald-200/40 hover:text-white active:translate-y-px"
+              class="min-h-10 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-200 transition hover:border-emerald-200/40 hover:text-white active:translate-y-px"
               type="button"
               on:click={() => setPreset(preset)}
             >
@@ -281,7 +281,7 @@
           </div>
           <div class="flex gap-2">
             <button
-              class="rounded-md border border-white/10 bg-white/7 p-2 text-slate-100 transition hover:bg-white/12 active:translate-y-px"
+              class="min-h-11 min-w-11 rounded-md border border-white/10 bg-white/7 p-2.5 text-slate-100 transition hover:bg-white/12 active:translate-y-px"
               type="button"
               aria-label="Use live time"
               on:click={useLiveTime}
@@ -289,7 +289,7 @@
               <RotateCcw size={18} strokeWidth={1.8} />
             </button>
             <button
-              class="rounded-md border border-white/10 bg-white/7 p-2 text-slate-100 transition hover:bg-white/12 active:translate-y-px"
+              class="min-h-11 min-w-11 rounded-md border border-white/10 bg-white/7 p-2.5 text-slate-100 transition hover:bg-white/12 active:translate-y-px"
               type="button"
               aria-label={playbackSpeed > 0 ? 'Pause playback' : 'Play time'}
               on:click={togglePlayback}
@@ -307,7 +307,7 @@
           <label class="grid gap-2 text-xs text-slate-300">
             Chosen date and time
             <input
-              class="rounded-md border border-white/10 bg-slate-950/55 px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-200/60"
+              class="min-h-10 w-full min-w-0 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-200/60"
               type="datetime-local"
               value={localTimeValue}
               on:input={(event) => setDateFromInput(event.currentTarget.value)}
@@ -316,7 +316,7 @@
           <label class="grid gap-2 text-xs text-slate-300">
             Playback speed
             <select
-              class="rounded-md border border-white/10 bg-slate-950/55 px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-200/60"
+              class="min-h-10 w-full min-w-0 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-200/60"
               bind:value={playbackSpeed}
               on:change={() => (mode = 'manual')}
             >

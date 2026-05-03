@@ -50,6 +50,13 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(159, 242, 218, 0.92) !important;
+  outline-offset: 3px;
+}
+
 button:disabled,
 input:disabled,
 select:disabled {
@@ -76,6 +83,25 @@ select:disabled {
 
 .earth-canvas :global(canvas) {
   display: block;
+}
+
+.control-panel {
+  scrollbar-color: rgba(159, 242, 218, 0.36) rgba(255, 255, 255, 0.06);
+  scrollbar-width: thin;
+}
+
+.control-panel::-webkit-scrollbar {
+  width: 0.45rem;
+}
+
+.control-panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+
+.control-panel::-webkit-scrollbar-thumb {
+  background: rgba(159, 242, 218, 0.36);
+  border-radius: 999px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { T, useTask } from '@threlte/core';
   import { OrbitControls } from '@threlte/extras';
+  import { onMount } from 'svelte';
   import * as THREE from 'three';
   import { EARTH_RADIUS, geoToVector } from '../lib/geo';
   import type { ObserverLocation, SolarSnapshot } from '../lib/types';
@@ -113,6 +114,11 @@
   let markerPosition = vectorToArray(geoToVector(location.latitude, location.longitude, EARTH_RADIUS * 1.04));
   let sunPosition = vectorToArray(scaleVector(snapshot.sunVector, EARTH_RADIUS * 1.68));
   let sunLightPosition = vectorToArray(scaleVector(snapshot.sunVector, 7));
+  let reduceMotion = false;
+
+  onMount(() => {
+    reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
 
   $: markerPosition = vectorToArray(geoToVector(location.latitude, location.longitude, EARTH_RADIUS * 1.04));
   $: sunPosition = vectorToArray(scaleVector(snapshot.sunVector, EARTH_RADIUS * 1.68));
@@ -130,7 +136,7 @@
   ]);
 
   useTask((delta) => {
-    if (cloudMesh) {
+    if (cloudMesh && !reduceMotion) {
       cloudMesh.rotation.y += delta * 0.012;
     }
   });
