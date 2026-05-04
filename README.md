@@ -4,6 +4,8 @@ A cinematic 3D Earth and Sun position explorer built with Astro, Svelte, Threlte
 
 The app asks for browser location, falls back to Sarajevo, and lets visitors choose any observer coordinates and time. The globe renders a daylight side, a night side with procedural city lights, the subsolar point, observer marker, Sun vector, and a compact solar readout.
 
+When visitors zoom close to the globe, the app descends into a real interactive map centered on the surface point under the camera. The default map uses OpenStreetMap raster tiles through Leaflet, and the tile provider can be swapped with environment variables.
+
 ## Tech Stack
 
 - Astro static site with a Svelte island
@@ -21,6 +23,24 @@ pnpm check
 pnpm test
 pnpm build
 ```
+
+## Real Map Close View
+
+The close map view uses Leaflet with a configurable raster tile source. Create `.env.local` from `.env.example` if you want to use a different tile provider:
+
+```sh
+PUBLIC_MAP_TILE_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png
+PUBLIC_MAP_TILE_ATTRIBUTION=&copy; OpenStreetMap contributors
+PUBLIC_MAP_TILE_MAX_ZOOM=19
+```
+
+For production traffic, use a tile provider that explicitly supports your expected usage and keep attribution visible. The default OpenStreetMap tile server is suitable for development and light usage, but public high-traffic deployments should use a dedicated provider or hosted tiles.
+
+References:
+
+- https://leafletjs.com/reference
+- https://leafletjs.com/examples/quick-start/
+- https://operations.osmfoundation.org/policies/tiles/
 
 ## Accuracy
 
@@ -50,6 +70,6 @@ The project is a static Astro app and is ready for Vercel.
 ## Roadmap
 
 - Add location search with a geocoder.
-- Add camera presets for observer view, Sun view, and terminator view.
+- Add place search and synchronized sun overlays in map mode.
 - Add high-resolution texture variants with explicit asset optimization.
 - Add educational annotations for seasons, solstices, equinoxes, and twilight bands.

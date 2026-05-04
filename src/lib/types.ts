@@ -34,8 +34,25 @@ export interface SolarSnapshot {
   sunset: Date | null;
 }
 
+export type SceneMode = 'orbit' | 'observer' | 'sun' | 'terminator';
+
+export interface SurfaceFocus {
+  latitude: number;
+  longitude: number;
+  cameraDistance: number;
+  suggestedZoom: number;
+  source: 'globe-center' | 'observer';
+}
+
+export type ZoomAction = 'in' | 'out' | 'reset';
+
+export interface ZoomIntent {
+  id: number;
+  action: ZoomAction;
+}
+
 export interface SceneState {
-  cameraMode: 'orbit' | 'observer';
+  cameraMode: SceneMode;
   selectedMarker: string | null;
   showPanel: boolean;
 }

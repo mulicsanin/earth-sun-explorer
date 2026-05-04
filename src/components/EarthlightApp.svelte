@@ -12,6 +12,7 @@
   } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import EarthScene from './EarthScene.svelte';
+  import MapTileView from './MapTileView.svelte';
   import { computeSolarSnapshot, PRESET_LOCATIONS, SARAJEVO_LOCATION } from '../lib/astronomy';
   import { clampLatitude, formatCoordinate, normalizeLongitude } from '../lib/geo';
   import {
@@ -21,9 +22,11 @@
     fromDateTimeLocalValue,
     toDateTimeLocalValue
   } from '../lib/format';
-  import type { ObserverLocation } from '../lib/types';
+  import type { ObserverLocation, SceneMode, SurfaceFocus, ZoomAction, ZoomIntent } from '../lib/types';
 
   type GeoStatus = 'idle' | 'locating' | 'allowed' | 'denied' | 'unsupported';
+
+  const MAP_SWITCH_DISTANCE = 2.28;
 
   let location: ObserverLocation = { ...SARAJEVO_LOCATION };
   let simulationDate = new Date();
@@ -35,6 +38,47 @@
   let manualLongitude = location.longitude.toFixed(4);
   let errorMessage = '';
   let showPanel = true;
+  let sceneMode: SceneMode = 'orbit';
+  let mapMode = false;
+  let mapFocus: SurfaceFocus = surfaceFocusFromLocation(location);
+  let zoomIntent: ZoomIntent = { id: 0, action: 'reset' };
+
+  const sceneModeOptions = [
+    {
+      id: 'orbit',
+      label: 'Orbit',
+      detail: 'Free drag',
+      ariaLabel: 'Use orbit camera view',
+      icon: Crosshair
+    },
+    {
+      id: 'observer',
+      label: 'Place',
+      detail: 'Surface point',
+      ariaLabel: 'Use observer camera view',
+      icon: MapPin
+    },
+    {
+      id: 'sun',
+      label: 'Sun',
+      detail: 'Light vector',
+      ariaLabel: 'Use sun camera view',
+      icon: SunMedium
+    },
+    {
+      id: 'terminator',
+      label: 'Edge',
+      detail: 'Day / night',
+      ariaLabel: 'Use day and night edge camera view',
+      icon: Clock3
+    }
+  ] satisfies Array<{
+    id: SceneMode;
+    label: string;
+    detail: string;
+    ariaLabel: string;
+    icon: typeof Crosshair;
+  }>;
 
   $: snapshot = computeSolarSnapshot(location, simulationDate);
   $: localTimeValue = toDateTimeLocalValue(simulationDate);
@@ -76,6 +120,7 @@
         };
         manualLatitude = location.latitude.toFixed(4);
         manualLongitude = location.longitude.toFixed(4);
+        mapFocus = surfaceFocusFromLocation(location);
         geolocationStatus = 'allowed';
         errorMessage = '';
       },
@@ -96,6 +141,7 @@
     manualLatitude = location.latitude.toFixed(4);
     manualLongitude = location.longitude.toFixed(4);
     manualLabel = preset.label;
+    mapFocus = surfaceFocusFromLocation(location);
     errorMessage = '';
   }
 
@@ -117,6 +163,7 @@
     };
     manualLatitude = location.latitude.toFixed(4);
     manualLongitude = location.longitude.toFixed(4);
+    mapFocus = surfaceFocusFromLocation(location);
     errorMessage = '';
   }
 
@@ -147,14 +194,60 @@
     mode = 'manual';
     playbackSpeed = playbackSpeed > 0 ? 0 : 60;
   }
+
+  function handleSurfaceFocus(nextFocus: SurfaceFocus) {
+    mapFocus = nextFocus;
+
+    if (!mapMode && nextFocus.cameraDistance <= MAP_SWITCH_DISTANCE) {
+      mapMode = true;
+    }
+  }
+
+  function surfaceFocusFromLocation(observerLocation: ObserverLocation): SurfaceFocus {
+    return {
+      latitude: observerLocation.latitude,
+      longitude: observerLocation.longitude,
+      cameraDistance: 4.75,
+      suggestedZoom: 12,
+      source: 'observer'
+    };
+  }
+
+  function sendZoomIntent(action: ZoomAction) {
+    zoomIntent = {
+      id: zoomIntent.id + 1,
+      action
+    };
+
+    if (action === 'reset') {
+      mapMode = false;
+      sceneMode = 'orbit';
+    }
+  }
+
+  function openMapView() {
+    mapFocus = surfaceFocusFromLocation(location);
+    mapMode = true;
+  }
+
+  function returnToGlobe() {
+    mapMode = false;
+    sceneMode = 'orbit';
+    sendZoomIntent('reset');
+  }
 </script>
 
 <main class="relative min-h-[100dvh] overflow-hidden">
-  <EarthScene {location} {snapshot} />
+  <EarthScene {location} {snapshot} {sceneMode} {zoomIntent} onSurfaceFocus={handleSurfaceFocus} />
 
   <div
     class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_44%,transparent_0,transparent_22rem,rgba(3,5,14,0.46)_74%)]"
   ></div>
+  <div class="grain-layer"></div>
+
+  {#if mapMode}
+    <MapTileView focus={mapFocus} onBack={returnToGlobe} />
+  {/if}
 
   <header class="pointer-events-none absolute left-0 right-0 top-0 z-20 px-4 pt-4 sm:px-6 lg:px-8">
     <div class="mx-auto flex max-w-[1500px] items-start justify-between gap-4">
@@ -181,6 +274,79 @@
       </button>
     </div>
   </header>
+
+  <nav
+    class="view-dock glass-panel absolute left-3 right-3 top-[9.25rem] z-20 grid grid-cols-4 gap-1.5 rounded-lg p-1.5 sm:left-1/2 sm:right-auto sm:top-[12.75rem] sm:w-[min(44rem,calc(100vw-3rem))] sm:-translate-x-1/2"
+    aria-label="Camera views"
+  >
+    {#each sceneModeOptions as modeOption (modeOption.id)}
+      <button
+        class={`group flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-md border px-1.5 text-center transition-[background,color,transform,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98] sm:grid sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-2 sm:px-3 sm:text-left ${
+          sceneMode === modeOption.id
+            ? 'border-emerald-100/40 bg-emerald-100 text-slate-950'
+            : 'border-transparent text-slate-200 hover:border-white/10 hover:bg-white/10 hover:text-white'
+        }`}
+        type="button"
+        aria-label={modeOption.ariaLabel}
+        aria-pressed={sceneMode === modeOption.id}
+        on:click={() => (sceneMode = modeOption.id)}
+      >
+        <span
+          class={`flex h-7 w-7 items-center justify-center rounded-md transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:translate-y-[-1px] sm:h-8 sm:w-8 ${
+            sceneMode === modeOption.id ? 'bg-slate-950/10 text-slate-950' : 'bg-white/7 text-emerald-100'
+          }`}
+        >
+          <svelte:component this={modeOption.icon} size={16} strokeWidth={1.8} />
+        </span>
+        <span class="min-w-0 max-w-full">
+          <span class="block truncate text-[0.68rem] font-semibold sm:text-xs">{modeOption.label}</span>
+          <span class="mono hidden truncate text-[0.58rem] uppercase tracking-[0.16em] opacity-70 sm:block">
+            {modeOption.detail}
+          </span>
+        </span>
+      </button>
+    {/each}
+  </nav>
+
+  {#if !mapMode}
+    <div
+      class="zoom-rail glass-panel absolute left-3 top-[13.45rem] z-20 grid w-[14rem] grid-cols-4 gap-1 rounded-lg p-1.5 sm:left-auto sm:right-6 sm:top-[5.25rem] sm:w-auto sm:grid-cols-1"
+      aria-label="Globe zoom controls"
+    >
+      <button
+        class="flex h-11 w-11 items-center justify-center rounded-md border border-transparent text-xl font-semibold text-slate-100 transition-[background,color,transform,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/10 hover:bg-white/10 hover:text-white active:scale-[0.96]"
+        type="button"
+        aria-label="Zoom in"
+        on:click={() => sendZoomIntent('in')}
+      >
+        +
+      </button>
+      <button
+        class="flex h-11 w-11 items-center justify-center rounded-md border border-transparent text-xl font-semibold text-slate-100 transition-[background,color,transform,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/10 hover:bg-white/10 hover:text-white active:scale-[0.96]"
+        type="button"
+        aria-label="Zoom out"
+        on:click={() => sendZoomIntent('out')}
+      >
+        -
+      </button>
+      <button
+        class="flex h-11 w-11 items-center justify-center rounded-md border border-transparent text-emerald-100 transition-[background,color,transform,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/10 hover:bg-white/10 hover:text-white active:scale-[0.96]"
+        type="button"
+        aria-label="Open map view"
+        on:click={openMapView}
+      >
+        <MapPin size={17} strokeWidth={1.8} />
+      </button>
+      <button
+        class="flex h-11 w-11 items-center justify-center rounded-md border border-transparent text-slate-100 transition-[background,color,transform,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/10 hover:bg-white/10 hover:text-white active:scale-[0.96]"
+        type="button"
+        aria-label="Reset globe zoom"
+        on:click={() => sendZoomIntent('reset')}
+      >
+        <Crosshair size={17} strokeWidth={1.8} />
+      </button>
+    </div>
+  {/if}
 
   {#if showPanel}
     <section

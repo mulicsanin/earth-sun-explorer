@@ -3,11 +3,15 @@
   import { OrbitControls } from '@threlte/extras';
   import { onMount } from 'svelte';
   import * as THREE from 'three';
-  import { EARTH_RADIUS, geoToVector } from '../lib/geo';
-  import type { ObserverLocation, SolarSnapshot } from '../lib/types';
+  import { EARTH_RADIUS, geoToVector, normalizeLongitude, radiansToDegrees } from '../lib/geo';
+  import type { OrbitControls as OrbitControlsImpl } from 'three/examples/jsm/controls/OrbitControls.js';
+  import type { ObserverLocation, SceneMode, SolarSnapshot, SurfaceFocus, ZoomIntent } from '../lib/types';
 
   export let location: ObserverLocation;
   export let snapshot: SolarSnapshot;
+  export let sceneMode: SceneMode;
+  export let zoomIntent: ZoomIntent;
+  export let onSurfaceFocus: (focus: SurfaceFocus) => void;
 
   const loader = new THREE.TextureLoader();
   const dayTexture = loader.load('/textures/land-ocean-ice-cloud-2048.jpg');
@@ -23,6 +27,7 @@
   const atmosphereGeometry = new THREE.SphereGeometry(EARTH_RADIUS * 1.045, 96, 64);
   const markerGeometry = new THREE.SphereGeometry(0.035, 24, 16);
   const sunMarkerGeometry = new THREE.SphereGeometry(0.055, 24, 16);
+  const sunGlowGeometry = new THREE.SphereGeometry(0.18, 32, 20);
   const starGeometry = createStarGeometry(900);
 
   const earthMaterial = new THREE.ShaderMaterial({
@@ -96,6 +101,13 @@
 
   const markerMaterial = new THREE.MeshBasicMaterial({ color: '#9ff2da' });
   const sunMarkerMaterial = new THREE.MeshBasicMaterial({ color: '#ffd89c' });
+  const sunGlowMaterial = new THREE.MeshBasicMaterial({
+    color: '#ffd89c',
+    transparent: true,
+    opacity: 0.18,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
   const starMaterial = new THREE.PointsMaterial({
     color: '#d9e7ff',
     size: 0.018,
@@ -106,18 +118,53 @@
   const sunLineMaterial = new THREE.LineBasicMaterial({
     color: '#ffd89c',
     transparent: true,
-    opacity: 0.34
+    opacity: 0.4
   });
   const sunLineGeometry = new THREE.BufferGeometry();
 
+  const desiredCameraPosition = new THREE.Vector3(0.2, 0.35, 4.75);
+  const desiredCameraTarget = new THREE.Vector3(0, 0, 0);
+  const centerRaycaster = new THREE.Raycaster();
+  const centerNdc = new THREE.Vector2(0, 0);
+  const globeSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), EARTH_RADIUS);
+  const surfaceHit = new THREE.Vector3();
+
+  let camera: THREE.PerspectiveCamera | undefined;
+  let controls: OrbitControlsImpl | undefined;
   let cloudMesh: THREE.Mesh | undefined;
+  let markerMesh: THREE.Mesh | undefined;
+  let sunGlowMesh: THREE.Mesh | undefined;
   let markerPosition = vectorToArray(geoToVector(location.latitude, location.longitude, EARTH_RADIUS * 1.04));
   let sunPosition = vectorToArray(scaleVector(snapshot.sunVector, EARTH_RADIUS * 1.68));
   let sunLightPosition = vectorToArray(scaleVector(snapshot.sunVector, 7));
   let reduceMotion = false;
+  let compactViewport = false;
+  let cameraSignature = '';
+  let cameraTransitionProgress = 1;
+  let elapsedSeconds = 0;
+  let surfaceFocusElapsed = 0;
+  let lastSurfaceFocusSignature = '';
+  let lastZoomIntentId = zoomIntent.id;
 
   onMount(() => {
-    reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const compactQuery = window.matchMedia('(max-width: 700px)');
+    const syncMotion = () => {
+      reduceMotion = motionQuery.matches;
+    };
+    const syncViewport = () => {
+      compactViewport = compactQuery.matches;
+    };
+
+    syncMotion();
+    syncViewport();
+    motionQuery.addEventListener('change', syncMotion);
+    compactQuery.addEventListener('change', syncViewport);
+
+    return () => {
+      motionQuery.removeEventListener('change', syncMotion);
+      compactQuery.removeEventListener('change', syncViewport);
+    };
   });
 
   $: markerPosition = vectorToArray(geoToVector(location.latitude, location.longitude, EARTH_RADIUS * 1.04));
@@ -134,12 +181,187 @@
       EARTH_RADIUS * 1.55
     )
   ]);
+  $: {
+    const nextCameraSignature = [
+      sceneMode,
+      location.latitude.toFixed(3),
+      location.longitude.toFixed(3),
+      snapshot.sunVector.x.toFixed(4),
+      snapshot.sunVector.y.toFixed(4),
+      snapshot.sunVector.z.toFixed(4),
+      compactViewport ? 'compact' : 'wide'
+    ].join(':');
+
+    if (nextCameraSignature !== cameraSignature) {
+      cameraSignature = nextCameraSignature;
+      const pose = resolveCameraPose(sceneMode);
+      desiredCameraPosition.copy(pose.position);
+      desiredCameraTarget.copy(pose.target);
+      cameraTransitionProgress = 0;
+    }
+  }
+  $: if (zoomIntent.id !== lastZoomIntentId) {
+    lastZoomIntentId = zoomIntent.id;
+    applyZoomIntent(zoomIntent.action);
+  }
 
   useTask((delta) => {
+    elapsedSeconds += delta;
+    surfaceFocusElapsed += delta;
+
     if (cloudMesh && !reduceMotion) {
       cloudMesh.rotation.y += delta * 0.012;
     }
+
+    if (markerMesh && !reduceMotion) {
+      const pulse = 1 + Math.sin(elapsedSeconds * 2.8) * 0.1;
+      markerMesh.scale.setScalar(pulse);
+    }
+
+    if (sunGlowMesh && !reduceMotion) {
+      const glowPulse = 1 + Math.sin(elapsedSeconds * 1.7) * 0.08;
+      sunGlowMesh.scale.setScalar(glowPulse);
+    }
+
+    if (camera && controls && cameraTransitionProgress < 1) {
+      const blend = reduceMotion ? 1 : Math.min(0.24, 1 - Math.pow(0.012, delta));
+      camera.position.lerp(desiredCameraPosition, blend);
+      controls.target.lerp(desiredCameraTarget, blend);
+      controls.update();
+      cameraTransitionProgress = Math.min(1, cameraTransitionProgress + delta * (reduceMotion ? 20 : 1.3));
+    }
+
+    if (surfaceFocusElapsed >= 0.14) {
+      surfaceFocusElapsed = 0;
+      updateSurfaceFocus();
+    }
   });
+
+  function applyZoomIntent(action: ZoomIntent['action']) {
+    if (!camera || !controls) {
+      return;
+    }
+
+    if (action === 'reset') {
+      const pose = resolveCameraPose('orbit');
+      desiredCameraPosition.copy(pose.position);
+      desiredCameraTarget.copy(pose.target);
+      cameraTransitionProgress = 0;
+      return;
+    }
+
+    const target = controls.target.clone();
+    const offset = camera.position.clone().sub(target);
+    const currentDistance = offset.length();
+
+    if (currentDistance <= 0.001) {
+      return;
+    }
+
+    const nextDistance = THREE.MathUtils.clamp(currentDistance * (action === 'in' ? 0.68 : 1.34), 2.05, 7.2);
+
+    camera.position.copy(target.add(offset.normalize().multiplyScalar(nextDistance)));
+    controls.update();
+    cameraTransitionProgress = 1;
+    updateSurfaceFocus();
+  }
+
+  function updateSurfaceFocus() {
+    if (!camera) {
+      return;
+    }
+
+    centerRaycaster.setFromCamera(centerNdc, camera);
+    const hit = centerRaycaster.ray.intersectSphere(globeSphere, surfaceHit);
+
+    if (!hit) {
+      return;
+    }
+
+    const coordinates = vectorToGeo(surfaceHit);
+    const cameraDistance = camera.position.length();
+    const suggestedZoom = distanceToMapZoom(cameraDistance);
+    const nextSignature = [
+      coordinates.latitude.toFixed(2),
+      coordinates.longitude.toFixed(2),
+      cameraDistance.toFixed(2),
+      suggestedZoom
+    ].join(':');
+
+    if (nextSignature === lastSurfaceFocusSignature) {
+      return;
+    }
+
+    lastSurfaceFocusSignature = nextSignature;
+    onSurfaceFocus({
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
+      cameraDistance,
+      suggestedZoom,
+      source: 'globe-center'
+    });
+  }
+
+  function resolveCameraPose(mode: SceneMode): { position: THREE.Vector3; target: THREE.Vector3 } {
+    const origin = new THREE.Vector3(0, 0, 0);
+    const sun = toThreeVector(snapshot.sunVector).normalize();
+    const distanceScale = compactViewport ? 1.24 : 1;
+
+    if (mode === 'observer') {
+      const observer = toThreeVector(
+        geoToVector(location.latitude, location.longitude, EARTH_RADIUS)
+      ).normalize();
+      let side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), observer);
+
+      if (side.lengthSq() < 0.01) {
+        side = new THREE.Vector3(1, 0, 0);
+      }
+
+      side.normalize();
+
+      return {
+        position: observer
+          .clone()
+          .multiplyScalar(3.65 * distanceScale)
+          .add(side.multiplyScalar(0.46))
+          .add(new THREE.Vector3(0, 0.24, 0)),
+        target: observer.clone().multiplyScalar(EARTH_RADIUS * 0.84)
+      };
+    }
+
+    if (mode === 'sun') {
+      return {
+        position: sun
+          .clone()
+          .multiplyScalar(4.85 * distanceScale)
+          .add(new THREE.Vector3(0, 0.18, 0)),
+        target: origin
+      };
+    }
+
+    if (mode === 'terminator') {
+      let tangent = new THREE.Vector3().crossVectors(sun, new THREE.Vector3(0, 1, 0));
+
+      if (tangent.lengthSq() < 0.01) {
+        tangent = new THREE.Vector3().crossVectors(sun, new THREE.Vector3(1, 0, 0));
+      }
+
+      tangent.normalize();
+
+      return {
+        position: tangent
+          .multiplyScalar(4.7 * distanceScale)
+          .add(sun.clone().multiplyScalar(0.42))
+          .add(new THREE.Vector3(0, 0.18, 0)),
+        target: origin
+      };
+    }
+
+    return {
+      position: compactViewport ? new THREE.Vector3(0.14, 0.28, 5.72) : new THREE.Vector3(0.2, 0.35, 4.75),
+      target: origin
+    };
+  }
 
   function scaleVector(vector: { x: number; y: number; z: number }, scale: number) {
     return {
@@ -151,6 +373,24 @@
 
   function vectorToArray(vector: { x: number; y: number; z: number }): [number, number, number] {
     return [vector.x, vector.y, vector.z];
+  }
+
+  function toThreeVector(vector: { x: number; y: number; z: number }): THREE.Vector3 {
+    return new THREE.Vector3(vector.x, vector.y, vector.z);
+  }
+
+  function vectorToGeo(vector: THREE.Vector3): { latitude: number; longitude: number } {
+    const normalized = vector.clone().normalize();
+
+    return {
+      latitude: radiansToDegrees(Math.asin(THREE.MathUtils.clamp(normalized.y, -1, 1))),
+      longitude: normalizeLongitude(radiansToDegrees(Math.atan2(normalized.x, normalized.z)))
+    };
+  }
+
+  function distanceToMapZoom(distance: number): number {
+    const normalized = THREE.MathUtils.clamp((distance - 2.05) / 3.9, 0, 1);
+    return Math.round(16 - normalized * 7);
   }
 
   function createStarGeometry(count: number): THREE.BufferGeometry {
@@ -231,8 +471,22 @@
   }
 </script>
 
-<T.PerspectiveCamera makeDefault position={[0.2, 0.35, 4.75]} fov={40} near={0.1} far={80} />
-<OrbitControls enableDamping dampingFactor={0.06} enablePan={false} minDistance={2.7} maxDistance={7.2} />
+<T.PerspectiveCamera
+  bind:ref={camera}
+  makeDefault
+  position={[0.2, 0.35, 4.75]}
+  fov={40}
+  near={0.1}
+  far={80}
+/>
+<OrbitControls
+  bind:ref={controls}
+  enableDamping
+  dampingFactor={0.06}
+  enablePan={false}
+  minDistance={2.05}
+  maxDistance={7.2}
+/>
 
 <T.Color attach="background" args={['#050711']} />
 <T.AmbientLight intensity={0.38} />
@@ -243,5 +497,6 @@
 <T.Mesh bind:ref={cloudMesh} geometry={cloudGeometry} material={cloudMaterial} />
 <T.Mesh geometry={atmosphereGeometry} material={atmosphereMaterial} />
 <T.Line geometry={sunLineGeometry} material={sunLineMaterial} />
-<T.Mesh position={markerPosition} geometry={markerGeometry} material={markerMaterial} />
+<T.Mesh bind:ref={markerMesh} position={markerPosition} geometry={markerGeometry} material={markerMaterial} />
+<T.Mesh bind:ref={sunGlowMesh} position={sunPosition} geometry={sunGlowGeometry} material={sunGlowMaterial} />
 <T.Mesh position={sunPosition} geometry={sunMarkerGeometry} material={sunMarkerMaterial} />
